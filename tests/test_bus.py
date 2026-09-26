@@ -53,6 +53,24 @@ class BusTest(unittest.TestCase):
             f.write(f'{time.time()}, "sender": "user", "to": "*", "text": "late"}}\n')
         self.assertEqual([m.text for m in self.bus.unread("a@x")], ["late"])
 
+    def test_malformed_lines_are_skipped(self):
+        good = json.dumps({"id": "ok", "ts": time.time(), "sender": "user", "to": "*", "text": "fine"})
+        bad = [
+            "[" * 100000 + "]" * 100000,  # RecursionError, not ValueError
+            "[1, 2]", "null", '"text"', "{broken",
+            json.dumps({"id": "1", "ts": "nan", "sender": "a", "to": "*", "text": "x"}),
+            json.dumps({"id": "2", "ts": 1e20, "sender": "a", "to": "*", "text": "x"}),
+            json.dumps({"id": "3", "ts": -5, "sender": "a", "to": "*", "text": "x"}),
+            json.dumps({"id": "4", "ts": [1], "sender": "a", "to": "*", "text": "x"}),
+        ]
+        with open(self.bus.log, "w", encoding="utf-8") as f:
+            f.write("\n".join(bad + [good]) + "\n")
+        msgs, offset = self.bus.read_from(0)
+        self.assertEqual([m.id for m in msgs], ["ok"])
+        self.assertEqual(offset, os.path.getsize(self.bus.log))
+        from agentviz.bus import format_messages
+        self.assertIn("fine", format_messages(self.bus.recent()))
+
     def test_presence_and_unique_name(self):
         self.bus.announce("claude@web", agent_pid=10)
         self.assertEqual(unique_name(self.bus, "claude@web", 10), "claude@web")

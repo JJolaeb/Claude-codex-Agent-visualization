@@ -10,6 +10,7 @@ Layout under ``$AGENTVIZ_HOME`` (default ``~/.agentviz``)::
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import secrets
@@ -21,6 +22,7 @@ from .agents import classify
 PRESENCE_TTL = 120.0  # seconds without heartbeat before an agent counts as gone
 BACKLOG = 3600.0  # a newly connected agent still receives messages sent this recently
 BACKLOG_BYTES = 1024 * 1024
+MAX_TS = 32503680000.0  # year 3000; later timestamps overflow time formatting on some platforms
 BROADCAST = ("*", "all", "everyone")
 
 
@@ -46,12 +48,19 @@ class Message:
     reply_to: str = ""
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Message | None":
+    def from_dict(cls, d: object) -> "Message | None":
+        if not isinstance(d, dict):
+            return None
         try:
-            return cls(str(d["id"]), float(d["ts"]), str(d["sender"]), str(d["to"]),
-                       str(d["text"]), str(d.get("reply_to") or ""))
+            ts = float(d["ts"])
+            msg = cls(str(d["id"]), ts, str(d["sender"]), str(d["to"]),
+                      str(d["text"]), str(d.get("reply_to") or ""))
         except (KeyError, TypeError, ValueError):
             return None
+        # NaN/inf or out-of-range timestamps would crash time formatting later.
+        if not (math.isfinite(ts) and 0 <= ts <= MAX_TS):
+            return None
+        return msg
 
     def addressed_to(self, name: str, kind: str = "") -> bool:
         to = self.to.lower()
@@ -111,7 +120,7 @@ class Bus:
         for line in data[: end + 1].splitlines():
             try:
                 m = Message.from_dict(json.loads(line))
-            except ValueError:
+            except Exception:  # skip any malformed line (e.g. RecursionError on deep nesting)
                 m = None
             if m:
                 out.append(m)
