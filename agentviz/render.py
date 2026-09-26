@@ -6,7 +6,8 @@ import os
 import time
 from datetime import datetime
 
-from .util import char_width, human_bytes, human_count, human_duration, short_path, truncate, width
+from .agents import KIND_BY_KEY
+from .util import char_width, clean, human_bytes, human_count, human_duration, short_path, truncate, width
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 SPINNER_ASCII = "|/-\\"
@@ -21,11 +22,11 @@ class Theme:
         if ascii_only:
             self.box = dict(tl="+", tr="+", bl="+", br="+", h="-", v="|")
             self.glyph = dict(user=">", text="*", tool="$", result="+", error="x", think="~",
-                              dot="*", odot="o", branch="@", bullet="-", logo="#")
+                              dot="*", odot="o", branch="@", bullet="-", logo="#", mail="M:", arrow="->")
         else:
             self.box = dict(tl="╭", tr="╮", bl="╰", br="╯", h="─", v="│")
             self.glyph = dict(user="›", text="◆", tool="▶", result="✓", error="✗", think="…",
-                              dot="●", odot="○", branch="⎇", bullet="·", logo="◆")
+                              dot="●", odot="○", branch="⎇", bullet="·", logo="◆", mail="✉", arrow="→")
 
     def sgr(self, *codes) -> str:
         if not self.color or not codes:
@@ -114,6 +115,9 @@ def card(view, w: int, n_events: int, tick: int, theme: Theme, now: float) -> li
     who = f" pid {view.pid} " if view.pid else " log only "
     if view.nprocs > 1:
         who = who[:-1] + f" {theme.glyph['bullet']} {view.nprocs} procs "
+    bus_name = getattr(view, "bus_name", "")
+    if bus_name:
+        who = who[:-1] + f" {theme.glyph['bullet']} {theme.glyph['mail']} {bus_name} "
     badge, badge_style = status_badge(view.status, tick, theme)
     fill = w - 2 - 1 - width(name) - width(who) - width(badge) - 1
     if fill < 1:
@@ -169,9 +173,33 @@ def card(view, w: int, n_events: int, tick: int, theme: Theme, now: float) -> li
     return lines
 
 
+def _name_style(name: str, theme: Theme) -> tuple:
+    if name == "user":
+        return (1, 38, 5, 214)
+    kind = KIND_BY_KEY.get(name.split("@")[0].split("#")[0])
+    return (1,) + theme.fg(kind.color) if kind else (1,)
+
+
+def message_segs(msg, theme: Theme) -> list:
+    ts = datetime.fromtimestamp(msg.ts).strftime("%H:%M:%S")
+    to = "everyone" if msg.to.lower() in ("*", "all", "everyone") else msg.to
+    return [(ts + " ", DIM), (msg.sender, _name_style(msg.sender, theme)),
+            (f" {theme.glyph['arrow']} ", DIM), (to, _name_style(to, theme)), ("  ", ()),
+            (clean(msg.text), (38, 5, 255))]
+
+
+def compose_footer(compose: str, targets: list, w: int, theme: Theme) -> str:
+    hint = "  (@name text · Enter send · Esc cancel)"
+    if targets:
+        hint = "  to: " + ", ".join(["@" + t for t in targets][:6]) + hint
+    return fit([(f" {theme.glyph['mail']} message › ", (1, 38, 5, 214)), (compose, ()),
+                ("█" if not theme.ascii else "_", (5,)), (hint, DIM)], w, theme)
+
+
 def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme: Theme,
           paused: bool = False, interval: float = 1.0, show_feed: bool = True,
-          backend: str = "", now: float | None = None) -> list:
+          backend: str = "", now: float | None = None, messages: list | None = None,
+          compose: str | None = None, targets: list | None = None, notice: str = "") -> list:
     now = now or time.time()
     cols, rows = size
     w = max(20, cols - 1)  # avoid writing into the last column (auto-wrap)
@@ -193,9 +221,15 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
     out.append(fit(head, head_w, theme) + fit([(right, (38, 5, 214) if paused else DIM)], width(right), theme))
     out.append("")
 
-    footer = fit([(" q", (1,)), (" quit  ", DIM), ("p", (1,)), (" pause  ", DIM), ("+/-", (1,)),
-                  (" speed  ", DIM), ("f", (1,)), (" feed  ", DIM),
-                  (f"[{backend}]" if backend else "", DIM)], w, theme)
+    if compose is not None:
+        footer = compose_footer(compose, targets or [], w, theme)
+    else:
+        footer = fit([(" q", (1,)), (" quit  ", DIM), ("p", (1,)), (" pause  ", DIM), ("+/-", (1,)),
+                      (" speed  ", DIM), ("f", (1,)), (" feed  ", DIM), ("m", (1,)), (" message  ", DIM),
+                      (notice + "  " if notice else "", (38, 5, 214)),
+                      (f"[{backend}]" if backend else "", DIM)], w, theme)
+    messages = messages or []
+    msg_rows = min(6, len(messages)) + 1 if messages else 0
 
     body_rows = rows - len(out) - 1
     if not views:
@@ -206,7 +240,7 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
         body_rows -= 3
 
     # Decide how many event lines each card gets so everything fits.
-    feed_min = 4 if show_feed else 0
+    feed_min = (4 if show_feed else 0) + msg_rows
     n = len(views)
     per_card = 0
     if n:
@@ -227,6 +261,13 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
     if shown < n:
         out.append(fit([(f"  +{n - shown} more agent(s) - enlarge the window", DIM)], w, theme))
 
+    remaining = rows - len(out) - 1
+    if messages and remaining >= 2:
+        rule = "─" if not theme.ascii else "-"
+        out.append(fit([(" Messages ", (1,)), (rule * (card_w - 10), DIM)], w, theme))
+        n_msgs = min(len(messages), max(1, min(6, remaining - 1 - (4 if show_feed else 0))))
+        for m in messages[-n_msgs:]:
+            out.append(fit(message_segs(m, theme), w, theme))
     remaining = rows - len(out) - 1
     if show_feed and remaining >= 3:
         out.append(fit([(" Activity ", (1,)), ("─" * (card_w - 10) if not theme.ascii else "-" * (card_w - 10),

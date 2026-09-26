@@ -225,6 +225,35 @@ def make_backend() -> _Backend:
     return PsBackend()
 
 
+def ancestor_pids(pid: int | None = None) -> list:
+    """PIDs of the given process (default: our parent) and all its ancestors, nearest first."""
+    pid = os.getppid() if pid is None else pid
+    out = []
+    if psutil is not None:
+        try:
+            p = psutil.Process(pid)
+            out.append(p.pid)
+            out.extend(a.pid for a in p.parents())
+            return out
+        except Exception:
+            return out
+    if sys.platform.startswith("linux") and os.path.isdir("/proc"):
+        while pid > 0 and pid not in out:
+            out.append(pid)
+            try:
+                with open(f"/proc/{pid}/stat", "rb") as f:
+                    stat = f.read().decode(errors="replace")
+                pid = int(stat[stat.rfind(")") + 2:].split()[1])
+            except (OSError, ValueError, IndexError):
+                break
+        return out
+    procs = make_backend().list()
+    while pid in procs and pid not in out:
+        out.append(pid)
+        pid = procs[pid].ppid
+    return out
+
+
 class Sampler:
     """Takes process snapshots and derives CPU% from cumulative CPU time deltas."""
 

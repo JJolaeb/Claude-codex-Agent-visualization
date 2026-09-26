@@ -6,6 +6,7 @@ import random
 import time
 
 from .agents import KIND_BY_KEY
+from .bus import Message
 from .model import AgentView, derive_status
 from .sessions import Session
 
@@ -31,6 +32,15 @@ SCRIPTS = {
 }
 
 
+CHAT = [
+    ("claude@webapp", "codex@api-server", "로그인 API 응답에 token_expires_at 필드 추가해줄 수 있어?"),
+    ("codex@api-server", "claude@webapp", "추가했어. ISO-8601 문자열이고 /api/login 응답에 들어가."),
+    ("claude@webapp", "codex@api-server", "고마워, 프론트에서 만료 검사 붙였어."),
+    ("gemini@infra", "*", "CI에 새 테스트 단계 추가함. 실패하면 알려줘."),
+    ("codex@api-server", "user", "pagination 작업 끝났어요. 리뷰 부탁드려요."),
+]
+
+
 class Demo:
     def __init__(self) -> None:
         self.start = time.time()
@@ -49,6 +59,26 @@ class Demo:
         sub = Session(agent="claude", path="demo-claude-sub", session_id="demo-claude-sub", cwd=cwds["claude"],
                       is_subagent=True, parent_id="demo-claude", mtime=self.start)
         self.views[0].subagents = [sub]
+        for v, name in zip(self.views, ("claude@webapp", "codex@api-server", "gemini@infra")):
+            v.bus_name = name
+        self.messages = []
+        self._chat_step, self._chat_next = 0, self.start + 2.0
+
+    def send(self, to: str, text: str) -> str:
+        now = time.time()
+        self.messages.append(Message(f"demo{len(self.messages)}", now, "user", to, text))
+        return f"sent to {to} (demo)"
+
+    def collect(self) -> tuple:
+        views, sessions = self.update()
+        now = time.time()
+        if now >= self._chat_next:
+            sender, to, text = CHAT[self._chat_step % len(CHAT)]
+            self.messages.append(Message(f"demo{len(self.messages)}", now, sender, to, text))
+            self.messages = self.messages[-30:]
+            self._chat_step += 1
+            self._chat_next = now + random.uniform(4, 8)
+        return views, sessions, list(self.messages), [v.bus_name for v in self.views]
 
     def update(self) -> tuple:
         now = time.time()
