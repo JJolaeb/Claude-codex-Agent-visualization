@@ -26,7 +26,7 @@ class Theme:
         else:
             self.box = dict(tl="╭", tr="╮", bl="╰", br="╯", h="─", v="│")
             self.glyph = dict(user="›", text="◆", tool="▶", result="✓", error="✗", think="…",
-                              dot="●", odot="○", branch="⎇", bullet="·", logo="◆", mail="✉", arrow="→")
+                              dot="●", odot="○", branch="⎇", bullet="·", logo="◆", mail="⇄", arrow="→")  # ✉ renders as a 2-cell emoji in some terminals
 
     def sgr(self, *codes) -> str:
         if not self.color or not codes:

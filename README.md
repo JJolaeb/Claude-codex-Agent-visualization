@@ -75,6 +75,7 @@ pip install ".[psutil]"  # psutil 포함 (Windows 권장)
 | `--ascii` | ASCII 문자만 사용 |
 | `--no-color` | 색상 끄기 (`NO_COLOR` 환경변수도 지원) |
 | `--no-feed` | Activity 피드 숨기기 |
+| `--all` | 기본으로 숨기는 데스크톱 앱(Claude/Codex 앱)과 IDE 확장용 백그라운드 서버도 표시 |
 
 ### 단축키
 
@@ -139,6 +140,15 @@ agentviz send codex "테스트 돌려줘"   # 명령줄에서 보내기 (보낸 
 agentviz messages -f              # 대화 로그 실시간 보기
 agentviz agents                   # 연결된 에이전트 목록
 ```
+
+## 잘못 감지될 때
+
+`agentviz doctor`를 실행하면 에이전트로 인식된 모든 프로세스의 실행 파일, 명령줄, 작업 폴더와 표시/숨김 이유가 출력됩니다.
+
+기본으로 숨기는 것:
+- Claude / Codex **데스크톱 앱** (Electron 앱, Microsoft Store 설치본)
+- Codex 보조 실행 파일 (`codex-command-runner` 등, 에이전트가 아님)
+- 세션이 없는 **백그라운드 서버** (`codex app-server`, `codex mcp-server`, `claude mcp serve` — IDE 확장이나 앱이 띄운 것)
 
 ## 환경 변수
 

@@ -74,10 +74,10 @@ class KeyReader:
 
 
 class Collector:
-    def __init__(self, window: float) -> None:
+    def __init__(self, window: float, show_all: bool = False) -> None:
         self.sampler = Sampler()
         self.tracker = SessionTracker(window_minutes=window)
-        self.builder = Builder(window_minutes=window)
+        self.builder = Builder(window_minutes=window, show_all=show_all)
         self.bus = None
         try:
             self.bus = Bus()
@@ -126,6 +126,8 @@ def parse_args(argv=None):
     p.add_argument("--no-color", action="store_true", help="disable colors (also honours NO_COLOR)")
     p.add_argument("--ascii", action="store_true", help="use ASCII characters only")
     p.add_argument("--no-feed", action="store_true", help="hide the activity feed")
+    p.add_argument("--all", action="store_true",
+                   help="also show desktop apps and idle background servers (IDE extensions)")
     p.add_argument("-V", "--version", action="version", version=f"agentviz {__version__}")
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
     m = sub.add_parser("mcp", help="run the MCP server that connects an agent to the message bus")
@@ -138,6 +140,7 @@ def parse_args(argv=None):
     i.add_argument("-n", type=int, default=20, help="number of messages (default 20)")
     i.add_argument("-f", "--follow", action="store_true", help="keep printing new messages")
     sub.add_parser("agents", help="list agents connected to the message bus")
+    sub.add_parser("doctor", help="list every process detected as an agent and why it is shown or hidden")
     sub.add_parser("setup", help="show how to connect Claude Code and Codex to the message bus")
     return p.parse_args(argv)
 
@@ -159,6 +162,38 @@ def parse_compose(text: str) -> tuple:
     return "*", text
 
 
+def run_doctor() -> int:
+    """Print every agent-like process with its command line and whether the dashboard shows it."""
+    from .agents import classify
+
+    collector = Collector(15.0)
+    procs = collector.sampler.sample()
+    views = collector.builder.build(procs, collector.sampler, collector.tracker.update(), claude_pid_sessions())
+    shown = {v.pid for v in views if v.pid}
+    hidden = {pid: reason for pid, _k, reason in collector.builder.hidden}
+    print(f"process backend: {collector.backend}\n")
+    found = False
+    for pid, p in sorted(procs.items()):
+        k = classify(p.name, p.exe, p.cmdline)
+        if not k or pid == os.getpid():
+            continue
+        found = True
+        if pid in shown:
+            state = "SHOWN"
+        elif pid in hidden:
+            state = f"HIDDEN: {hidden[pid]}"
+        else:
+            state = "part of another agent's process tree"
+        print(f"[{k.label}] pid {pid} (parent {p.ppid}) - {state}")
+        print(f"    exe : {p.exe or '-'}")
+        print(f"    cmd : {' '.join(p.cmdline)[:300] or '-'}")
+        print(f"    cwd : {collector.sampler.cwd(p) or '-'}")
+    if not found:
+        print("No agent-like processes found.")
+    print("\nIf something is detected wrongly, please share this output. Use --all to show hidden ones.")
+    return 0
+
+
 def run_command(args) -> int:
     from .bus import format_messages
 
@@ -168,6 +203,8 @@ def run_command(args) -> int:
     if args.command == "hook":
         from .hook import run as hook_run
         return hook_run()
+    if args.command == "doctor":
+        return run_doctor()
     if args.command == "setup":
         from .connect import print_setup
         print_setup()
@@ -219,7 +256,7 @@ def run(argv=None) -> int:
         source = Demo()
         backend = "demo"
     else:
-        source = Collector(args.window)
+        source = Collector(args.window, show_all=args.all)
         backend = source.backend
     collect = source.collect
 

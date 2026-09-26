@@ -7,7 +7,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from .agents import AgentKind, KIND_BY_KEY, classify
+from .agents import AgentKind, KIND_BY_KEY, background_reason, classify, is_electron_helper
 from .sessions import Event, Session
 from .util import norm_path
 
@@ -75,7 +75,9 @@ def derive_status(view: AgentView, now: float) -> str:
 class Builder:
     """Keeps per-agent CPU history across refreshes."""
 
-    def __init__(self, window_minutes: float = 15.0) -> None:
+    def __init__(self, window_minutes: float = 15.0, show_all: bool = False) -> None:
+        self.show_all = show_all
+        self.hidden: list = []  # (pid, kind, reason) of agent-like processes not shown
         self.histories: dict = {}
         self.window = window_minutes * 60
         self.own_pid = os.getpid()
@@ -84,13 +86,25 @@ class Builder:
         now = time.time()
         pid_sessions = pid_sessions or {}
 
+        # Electron/Chromium apps (e.g. the Claude or Codex desktop apps) are GUI processes:
+        # their helpers carry --type=..., which also identifies the main process as their parent.
+        electron = set()
+        for pid, p in procs.items():
+            if is_electron_helper(p.cmdline):
+                electron.update((pid, p.ppid))
+
+        self.hidden = []
         kinds = {}
         for pid, p in procs.items():
             if pid == self.own_pid:
                 continue
             k = classify(p.name, p.exe, p.cmdline)
-            if k:
-                kinds[pid] = k
+            if not k:
+                continue
+            if pid in electron and not self.show_all:
+                self.hidden.append((pid, k, "desktop app (Electron)"))
+                continue
+            kinds[pid] = k
 
         # Fold agent processes whose ancestor is the same agent into that ancestor.
         roots = []
@@ -149,6 +163,10 @@ class Builder:
                 used.add(sess.path)
                 v.session = sess
                 v.subagents = subs.get(sess.session_id, [])
+            reason = background_reason(p.cmdline)
+            if reason and sess is None and not self.show_all:
+                self.hidden.append((pid, k, reason))
+                continue
             views.append(v)
 
         # Transcripts with no matching live process (e.g. agent in a container / other host).

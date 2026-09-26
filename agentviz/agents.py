@@ -18,12 +18,15 @@ class AgentKind:
 
 
 # Substrings that mark GUI/desktop builds rather than the terminal agents.
-_DESKTOP = (".app/Contents/", "AnthropicClaude", "Claude Helper", "\\Programs\\claude\\", "Codex.app")
+_DESKTOP = (".app/Contents/", "AnthropicClaude", "Claude Helper", "\\Programs\\claude\\", "Codex.app",
+            "\\WindowsApps\\")  # Microsoft Store (MSIX) installs are the desktop apps
 
 KINDS: tuple = (
     AgentKind("claude", "Claude Code", 209, names=("claude",),
               packages=("@anthropic-ai/claude-code",), excludes=_DESKTOP),
-    AgentKind("codex", "Codex", 42, names=("codex",), name_prefixes=("codex-",),
+    # Only the platform-triple builds (codex-x86_64-..., codex-aarch64-...) are the CLI itself;
+    # other codex-* executables are helpers such as the Windows sandbox runner.
+    AgentKind("codex", "Codex", 42, names=("codex",), name_prefixes=("codex-x86_64", "codex-aarch64"),
               packages=("@openai/codex",), excludes=_DESKTOP),
     AgentKind("gemini", "Gemini CLI", 75, names=("gemini",), packages=("@google/gemini-cli",)),
     AgentKind("copilot", "Copilot CLI", 141, packages=("@github/copilot",)),
@@ -84,3 +87,22 @@ def classify(name: str, exe: str | None, cmdline: list | None) -> AgentKind | No
         if any(_name_matches(kind, b) for b in script_bases):
             return kind
     return None
+
+
+# Subcommands that run an agent as a headless backend for an IDE extension or app.
+_BACKGROUND_ARGS = {"app-server", "mcp-server", "proto"}
+
+
+def background_reason(cmdline: list | None) -> str:
+    """Why an agent process is a background server rather than an interactive session ("" if not)."""
+    args = [str(a).lower() for a in (cmdline or [])[1:6]]
+    if any(a in _BACKGROUND_ARGS for a in args):
+        return "background server (IDE extension / app)"
+    if "mcp" in args and "serve" in args:
+        return "MCP server"
+    return ""
+
+
+def is_electron_helper(cmdline: list | None) -> bool:
+    """Chromium/Electron child processes carry a --type=renderer|gpu-process|utility flag."""
+    return any(str(a).startswith("--type=") for a in (cmdline or []))

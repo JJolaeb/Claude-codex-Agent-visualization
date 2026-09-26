@@ -186,6 +186,35 @@ class BuilderTest(unittest.TestCase):
             for line in lines:
                 self.assertLessEqual(width(line), 79, line)
 
+    def test_hides_desktop_apps_helpers_and_idle_servers(self):
+        now = time.time()
+        store = "C:\\Program Files\\WindowsApps\\Claude_1.0_x64\\app\\claude.exe"
+        procs = {
+            # Claude desktop app: Electron main + renderer helper
+            100: ProcInfo(100, 1, "claude.exe", exe="C:\\Users\\u\\AppData\\Local\\Claude\\claude.exe",
+                          cmdline=["claude.exe"], create_time=now - 99),
+            101: ProcInfo(101, 100, "claude.exe", cmdline=["claude.exe", "--type=renderer"]),
+            # Microsoft Store install
+            110: ProcInfo(110, 1, "claude.exe", exe=store, cmdline=[store]),
+            # Codex Windows sandbox helper (not the CLI)
+            120: ProcInfo(120, 1, "codex-command-runner.exe", cmdline=["codex-command-runner.exe"]),
+            # Codex backend for an IDE extension, no session
+            130: ProcInfo(130, 1, "codex.exe", cmdline=["codex.exe", "app-server"], create_time=now - 50),
+            # A real terminal Claude Code
+            140: ProcInfo(140, 1, "claude.exe", exe="C:\\Users\\u\\.local\\bin\\claude.exe",
+                          cmdline=["claude.exe", "--resume"], create_time=now - 10),
+        }
+        b = Builder()
+        views = b.build(procs, _FakeSampler({}), [])
+        self.assertEqual([v.pid for v in views], [140])
+        reasons = {pid: r for pid, _k, r in b.hidden}
+        self.assertEqual(reasons[100], "desktop app (Electron)")
+        self.assertIn("background server", reasons[130])
+        self.assertNotIn(110, [v.pid for v in views])
+        self.assertNotIn(120, reasons)  # not even classified as an agent
+        shown_all = {v.pid for v in Builder(show_all=True).build(procs, _FakeSampler({}), [])}
+        self.assertTrue({100, 130, 140} <= shown_all)
+
     def test_empty_frame(self):
         lines = frame([], [], {}, (60, 12), 0, Theme(color=False))
         self.assertIn("No active coding agents", "\n".join(lines))
