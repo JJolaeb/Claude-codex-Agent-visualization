@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentviz"
+version = "0.1.0"
+description = "Terminal dashboard that visualizes running coding agents (Claude Code, Codex, Gemini CLI, ...)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+psutil = ["psutil>=5.9"]
+
+[project.scripts]
+agentviz = "agentviz.app:main"
+
+[tool.setuptools]
+packages = ["agentviz"]
