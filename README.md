@@ -58,6 +58,10 @@ pip install ".[psutil]"  # psutil 포함 (Windows 권장)
 > **Windows**: psutil이 없으면 PowerShell로 프로세스 목록을 조회하므로 조금 느리고 작업 디렉터리를 알 수 없습니다.
 > `pip install psutil`을 권장합니다. Windows 10 이상의 cmd / PowerShell / Windows Terminal에서 색상과 유니코드가 표시됩니다.
 > 글자가 깨지면 `--ascii` 옵션을 사용하세요.
+>
+> **오래된 콘솔**(Windows 10 이전, 또는 창 속성에서 "레거시 콘솔 사용"이 켜진 경우)은 ANSI 색상/커서 제어를 지원하지 않습니다.
+> agentviz는 이를 자동으로 감지해 실시간 대시보드 대신 해결 방법을 안내하고 종료합니다(`--once`, `--json`, `messages -f`는 그대로 사용 가능하며
+> 자동으로 색상 없이 ASCII로 출력됩니다). 감지가 잘못된 경우 `AGENTVIZ_FORCE_VT=1`로 검사를 건너뛸 수 있습니다.
 
 ## 옵션
 
@@ -141,6 +145,7 @@ agentviz agents                   # 연결된 에이전트 목록
 - `CLAUDE_CONFIG_DIR` – Claude Code 설정 폴더 (기본 `~/.claude`)
 - `CODEX_HOME` – Codex 폴더 (기본 `~/.codex`)
 - `AGENTVIZ_HOME` – 메시지 버스 폴더 (기본 `~/.agentviz`)
+- `AGENTVIZ_FORCE_VT` – `1`이면 Windows 레거시 콘솔 감지를 건너뜀
 
 ## 동작 방식
 

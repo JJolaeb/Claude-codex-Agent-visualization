@@ -12,7 +12,7 @@ import time
 from . import __version__
 from .model import Builder, feed, session_label
 from .procs import Sampler
-from .render import Theme, enable_windows_vt, frame
+from .render import LEGACY_CONSOLE_HELP, VT_LEGACY, VT_OK, Theme, frame, windows_vt_status
 from .sessions import SessionTracker, claude_pid_sessions
 from .bus import Bus
 
@@ -207,9 +207,11 @@ def run(argv=None) -> int:
     _setup_stdout()
     if args.command:
         return run_command(args)
-    vt_ok = enable_windows_vt()
-    color = not args.no_color and "NO_COLOR" not in os.environ and vt_ok and sys.stdout.isatty()
-    theme = Theme(color=color, ascii_only=args.ascii)
+    vt = windows_vt_status()
+    legacy = vt == VT_LEGACY
+    color = not args.no_color and "NO_COLOR" not in os.environ and vt == VT_OK and sys.stdout.isatty()
+    # Legacy consoles usually use raster fonts without box-drawing/Hangul-width support.
+    theme = Theme(color=color, ascii_only=args.ascii or legacy)
     interval = max(0.2, args.interval)
 
     if args.demo:
@@ -244,6 +246,9 @@ def run(argv=None) -> int:
 
     if not sys.stdout.isatty():
         print("agentviz: stdout is not a terminal; use --once or --json", file=sys.stderr)
+        return 2
+    if legacy:
+        print(LEGACY_CONSOLE_HELP, file=sys.stderr)
         return 2
 
     out = sys.stdout

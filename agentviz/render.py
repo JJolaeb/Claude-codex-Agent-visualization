@@ -212,7 +212,7 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
             counts[v.kind] = counts.get(v.kind, 0) + 1
     busy = sum(1 for v in views if v.status in ("WORKING", "TOOL"))
     head = [(f" {theme.glyph['logo']} AGENTVIZ ", (1, 7) if theme.color else ())]
-    head.append((f"  {sum(counts.values())} running · {busy} busy  ", ()))
+    head.append((f"  {sum(counts.values())} running {theme.glyph['bullet']} {busy} busy  ", ()))
     for k, n in counts.items():
         head += [(theme.glyph["dot"] + " ", theme.fg(k.color)), (f"{k.label} {'x' if theme.ascii else '×'}{n}  ", ())]
     right = datetime.fromtimestamp(now).strftime("%H:%M:%S")
@@ -291,22 +291,62 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
     return out
 
 
-def enable_windows_vt() -> bool:
-    """Enable ANSI escape processing and UTF-8 output on Windows consoles."""
-    if os.name != "nt":
-        return True
+VT_OK, VT_LEGACY, VT_NO_CONSOLE = "ok", "legacy", "no-console"
+ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+
+
+def windows_vt_status(k32=None) -> str:
+    """Enable ANSI escape processing on a Windows console and report whether it works.
+
+    Returns VT_OK (ANSI works, or not Windows), VT_LEGACY (a console that cannot process
+    ANSI sequences, e.g. before Windows 10 or with "Use legacy console" enabled) or
+    VT_NO_CONSOLE (stdout is redirected, not a console).
+    """
+    if k32 is None:
+        if os.name != "nt":
+            return VT_OK
+        if os.environ.get("AGENTVIZ_FORCE_VT"):
+            return VT_OK
     try:
         import ctypes
-        k32 = ctypes.windll.kernel32
-        k32.SetConsoleOutputCP(65001)
-        k32.SetConsoleCP(65001)
+        if k32 is None:
+            k32 = ctypes.windll.kernel32
+            k32.SetConsoleOutputCP(65001)
+            k32.SetConsoleCP(65001)
         h = k32.GetStdHandle(-11)
         mode = ctypes.c_uint32()
         if not k32.GetConsoleMode(h, ctypes.byref(mode)):
-            return False
-        return bool(k32.SetConsoleMode(h, mode.value | 0x0004))
+            return VT_NO_CONSOLE
+        if mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING:
+            return VT_OK
+        if not k32.SetConsoleMode(h, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING):
+            return VT_LEGACY
+        # Some consoles accept the call but silently drop the flag; read it back.
+        if not k32.GetConsoleMode(h, ctypes.byref(mode)) or not mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING:
+            return VT_LEGACY
+        return VT_OK
     except Exception:
-        return False
+        return VT_LEGACY
 
 
-__all__ = ["Theme", "frame", "card", "fit", "spark", "enable_windows_vt", "char_width"]
+LEGACY_CONSOLE_HELP = """\
+agentviz: this console cannot display the live dashboard (no ANSI/VT support).
+  이 콘솔은 ANSI 색상/커서 제어를 지원하지 않아 실시간 대시보드를 표시할 수 없습니다.
+
+  Fix / 해결 방법:
+    - Use Windows Terminal, or cmd/PowerShell on Windows 10 or later
+      (Windows Terminal 또는 Windows 10 이상의 cmd/PowerShell 사용)
+    - If you are on Windows 10+, open the console window Properties and turn off
+      "Use legacy console" (창 속성에서 "레거시 콘솔 사용" 해제 후 다시 실행)
+
+  Meanwhile / 대신 사용할 수 있는 명령:
+    agentviz --once --ascii     one plain-text snapshot (한 번만 출력)
+    agentviz --json             machine-readable snapshot (JSON 출력)
+    agentviz messages -f        follow agent messages (에이전트 메시지 보기)
+
+  If your terminal does support ANSI, set AGENTVIZ_FORCE_VT=1 to skip this check.
+"""
+
+
+__all__ = ["Theme", "frame", "card", "fit", "spark", "windows_vt_status", "LEGACY_CONSOLE_HELP",
+           "VT_OK", "VT_LEGACY", "VT_NO_CONSOLE", "char_width"]
