@@ -89,6 +89,7 @@ pip install ".[psutil]"  # psutil 포함 (Windows 권장)
 | `r` | 즉시 새로고침 |
 | `c` | 끝난 작업(프로세스가 종료되고 로그만 남은 카드) 지우기. 활동 기록에서도 사라지며, 같은 세션이 다시 진행되면 다시 표시 |
 | `u` | 지운 작업 되돌리기 |
+| `x` | 릴레이 끄기/켜기 (`--relay`로 실행했을 때) |
 
 ## 에이전트끼리 대화하기 (메시지 버스)
 
@@ -136,6 +137,41 @@ Claude가 `send_message` → `check_messages(wait_seconds=45)`를 스스로 호�
 
 > 다른 에이전트가 보낸 메시지는 "동료의 요청"으로 전달되며, 에이전트에게 위험한 명령은 그대로 따르지 말라고 안내합니다.
 > 버스는 로컬 파일이며 네트워크로 노출되지 않습니다.
+
+### 작업하면서 알아서 소통하게 하기
+
+**1) 협업 규칙 넣기** — 에이전트가 작업 단계마다 메시지를 확인하고, 겹치는 작업은 먼저 물어보게 합니다.
+
+```bash
+python -m agentviz setup --rules            # 현재 폴더의 CLAUDE.md, AGENTS.md에 규칙 추가
+python -m agentviz setup --rules --global   # 모든 프로젝트 (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md)
+python -m agentviz setup --rules --remove   # 규칙 제거
+```
+
+규칙은 표시된 블록(`<!-- agentviz:rules:start -->` ~ `end`)으로만 추가되어 기존 내용은 건드리지 않습니다. 에이전트를 다시 시작하면 적용됩니다.
+
+**2) 릴레이 켜기** — 입력을 기다리며 쉬고 있는 에이전트에게 메시지가 오면 agentviz가 그 세션을 이어서 실행해
+메시지를 읽고 답하게 합니다 (Claude: `claude -p --resume <세션> --fork-session`, Codex: `codex exec resume <세션>`).
+
+```bash
+python -m agentviz --relay        # 대시보드 + 릴레이 (x 키로 끄기/켜기)
+python -m agentviz relay          # 릴레이만 (로그 출력)
+```
+
+안전장치:
+- 작업 중(WORKING / RUNNING TOOL)이거나 최근 30초 안에 활동한 에이전트는 깨우지 않습니다.
+- 에이전트당 동시에 하나만 실행, 10분 넘으면 강제 종료, 같은 메시지로는 한 번만 깨웁니다.
+- 한 시간에 전체 12회 / 에이전트당 6회를 넘으면 **자동으로 멈추고** 사용자에게 메시지를 남깁니다.
+- 메시지 내용은 명령줄에 넣지 않습니다(에이전트가 `check_messages`로 직접 읽음).
+- 대시보드에서 `x`를 누르면 실행 중인 것까지 즉시 중단합니다.
+
+조절 옵션: `--relay-max`, `--relay-max-per-agent`, `--relay-idle`, `--relay-timeout`.
+깨운 실행은 기본적으로 agentviz 도구만 허용됩니다. 파일 수정까지 맡기려면
+`--claude-args="--permission-mode acceptEdits"`, `--codex-args="--full-auto"`처럼 권한을 직접 넘겨 주세요.
+실행 로그는 `~/.agentviz/bus/relay-logs/`에 남습니다.
+
+> 주의: 릴레이는 사람 확인 없이 에이전트를 실행하므로 사용량이 늘어납니다. Claude는 원래 대화를 건드리지 않도록
+> 세션을 복제(fork)해서 이어가고, Codex는 같은 세션 기록에 이어서 기록됩니다.
 
 ### 사람이 쓰는 명령
 

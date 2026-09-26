@@ -78,7 +78,8 @@ class Bus:
         self.log = os.path.join(self.root, "messages.jsonl")
         self.agents_dir = os.path.join(self.root, "agents")
         self.cursors_dir = os.path.join(self.root, "cursors")
-        for d in (self.root, self.agents_dir, self.cursors_dir):
+        self.claims_dir = os.path.join(self.root, "claims")
+        for d in (self.root, self.agents_dir, self.cursors_dir, self.claims_dir):
             os.makedirs(d, exist_ok=True)
 
     # ------------------------------------------------------------------ messages
@@ -213,6 +214,36 @@ class Bus:
             if alive or include_stale:
                 rec["alive"] = alive
                 out.append(rec)
+        return out
+
+
+    # ------------------------------------------------------------------ claims
+
+    def claim(self, pid: int, name: str) -> None:
+        """Declare that process `pid` (and its descendants) act as agent `name`.
+
+        Used by the relay so a headless run it starts answers under the same bus name
+        as the interactive agent it stands in for.
+        """
+        path = os.path.join(self.claims_dir, f"{int(pid)}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"pid": int(pid), "name": name, "ts": time.time()}, f)
+
+    def unclaim(self, pid: int) -> None:
+        try:
+            os.remove(os.path.join(self.claims_dir, f"{int(pid)}.json"))
+        except OSError:
+            pass
+
+    def claims(self) -> dict:
+        out = {}
+        for fn in os.listdir(self.claims_dir):
+            try:
+                with open(os.path.join(self.claims_dir, fn), encoding="utf-8") as f:
+                    rec = json.load(f)
+                out[int(rec["pid"])] = str(rec["name"])
+            except Exception:
+                continue
         return out
 
 

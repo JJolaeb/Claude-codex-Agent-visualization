@@ -199,7 +199,8 @@ def compose_footer(compose: str, targets: list, w: int, theme: Theme) -> str:
 def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme: Theme,
           paused: bool = False, interval: float = 1.0, show_feed: bool = True,
           backend: str = "", now: float | None = None, messages: list | None = None,
-          compose: str | None = None, targets: list | None = None, notice: str = "") -> list:
+          compose: str | None = None, targets: list | None = None, notice: str = "",
+          relay: str = "") -> list:
     now = now or time.time()
     cols, rows = size
     w = max(20, cols - 1)  # avoid writing into the last column (auto-wrap)
@@ -216,7 +217,7 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
     for k, n in counts.items():
         head += [(theme.glyph["dot"] + " ", theme.fg(k.color)), (f"{k.label} {'x' if theme.ascii else '×'}{n}  ", ())]
     right = datetime.fromtimestamp(now).strftime("%H:%M:%S")
-    right = ("PAUSED  " if paused else "") + f"refresh {interval:g}s  {right} "
+    right = ("PAUSED  " if paused else "") + (f"{relay}  " if relay else "") + f"refresh {interval:g}s  {right} "
     head_w = w - width(right)
     out.append(fit(head, head_w, theme) + fit([(right, (38, 5, 214) if paused else DIM)], width(right), theme))
     out.append("")
@@ -227,6 +228,7 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
         footer = fit([(" q", (1,)), (" quit  ", DIM), ("p", (1,)), (" pause  ", DIM), ("+/-", (1,)),
                       (" speed  ", DIM), ("f", (1,)), (" feed  ", DIM), ("m", (1,)), (" message  ", DIM),
                       ("c", (1,)), (" clear done  ", DIM),
+                      ("x", (1,)) if relay else ("", ()), (" relay  ", DIM) if relay else ("", ()),
                       (notice + "  " if notice else "", (38, 5, 214)),
                       (f"[{backend}]" if backend else "", DIM)], w, theme)
     messages = messages or []

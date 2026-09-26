@@ -76,11 +76,33 @@ TOOLS = [
 ]
 
 
+def _claimed_name(bus: Bus) -> str | None:
+    """Name claimed by the relay for one of our ancestor processes, if any."""
+    try:
+        claims = bus.claims()
+        if not claims:
+            return None
+        from .procs import ancestor_pids
+        for pid in ancestor_pids():
+            if pid in claims:
+                return claims[pid]
+    except Exception:
+        pass
+    return None
+
+
 class Server:
     def __init__(self, name: str | None = None, bus: Bus | None = None, identity: dict | None = None) -> None:
         self.bus = bus or Bus()
         self.ident = identity or detect_identity()
-        self.name = unique_name(self.bus, name or self.ident["name"], self.ident.get("agent_pid"))
+        claimed = None if (name or identity is not None) else _claimed_name(self.bus)
+        # A headless run started by the relay shares the interactive agent's name and inbox;
+        # it must not take over (or later delete) that agent's presence record.
+        self.shadow = claimed is not None
+        if self.shadow:
+            self.name = claimed
+        else:
+            self.name = unique_name(self.bus, name or self.ident["name"], self.ident.get("agent_pid"))
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._announce()
@@ -88,6 +110,8 @@ class Server:
     # ------------------------------------------------------------------ presence
 
     def _announce(self) -> None:
+        if self.shadow:
+            return
         self.bus.announce(self.name, kind=self.ident.get("kind", ""), agent_pid=self.ident.get("agent_pid"),
                           cwd=self.ident.get("cwd"), server_pid=os.getpid())
 
@@ -151,7 +175,9 @@ class Server:
             if new in taken and taken[new] != self.ident.get("agent_pid"):
                 return f"'{new}' is already used by another agent", True
             with self._lock:
-                self.bus.retire(self.name)
+                if not self.shadow:
+                    self.bus.retire(self.name)
+                self.shadow = False
                 self.name = new
                 self._announce()
             return f"You are now '{new}'.", False
@@ -210,7 +236,8 @@ class Server:
                     stdout.flush()
         finally:
             self._stop.set()
-            self.bus.retire(self.name)
+            if not self.shadow:
+                self.bus.retire(self.name)
 
 
 def main(name: str | None = None) -> int:

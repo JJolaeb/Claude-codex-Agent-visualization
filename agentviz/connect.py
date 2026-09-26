@@ -69,7 +69,12 @@ def print_setup() -> None:
    about to stop, is asked to read and answer them first. Without it (and in Codex)
    agents read messages when they call the check_messages tool.
 
-4) Restart the agents, then watch and talk to them:
+4) Optional: let them coordinate on their own.
+
+   agentviz setup --rules       add collaboration rules to CLAUDE.md / AGENTS.md here
+   agentviz --relay             dashboard that also wakes idle agents for new messages
+
+5) Restart the agents, then watch and talk to them:
 
    agentviz                     dashboard (press m to send a message)
    agentviz send '*' "hello"    message everyone as 'user'

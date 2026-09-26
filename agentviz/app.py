@@ -112,6 +112,17 @@ class Collector:
         return self.sampler.backend.name
 
 
+def _relay_options(p) -> None:
+    g = p.add_argument_group("relay (auto-wake idle agents)")
+    g.add_argument("--relay-max", type=int, default=12, help="max wake-ups per hour in total (default 12)")
+    g.add_argument("--relay-max-per-agent", type=int, default=6, help="max wake-ups per agent per hour (default 6)")
+    g.add_argument("--relay-idle", type=float, default=30.0,
+                   help="seconds without activity before an agent counts as idle (default 30)")
+    g.add_argument("--relay-timeout", type=float, default=600.0, help="kill a woken run after N seconds (default 600)")
+    g.add_argument("--claude-args", default="", help='extra arguments for woken Claude runs, e.g. --claude-args="--permission-mode acceptEdits"')
+    g.add_argument("--codex-args", default="", help='extra arguments for woken Codex runs, e.g. --codex-args="--full-auto"')
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
         prog="agentviz",
@@ -126,6 +137,9 @@ def parse_args(argv=None):
     p.add_argument("--no-color", action="store_true", help="disable colors (also honours NO_COLOR)")
     p.add_argument("--ascii", action="store_true", help="use ASCII characters only")
     p.add_argument("--no-feed", action="store_true", help="hide the activity feed")
+    p.add_argument("--relay", action="store_true",
+                   help="auto-wake idle agents when other agents message them (x toggles it)")
+    _relay_options(p)
     p.add_argument("--all", action="store_true",
                    help="also show desktop apps and idle background servers (IDE extensions)")
     p.add_argument("-V", "--version", action="version", version=f"agentviz {__version__}")
@@ -141,7 +155,15 @@ def parse_args(argv=None):
     i.add_argument("-f", "--follow", action="store_true", help="keep printing new messages")
     sub.add_parser("agents", help="list agents connected to the message bus")
     sub.add_parser("doctor", help="list every process detected as an agent and why it is shown or hidden")
-    sub.add_parser("setup", help="show how to connect Claude Code and Codex to the message bus")
+    st = sub.add_parser("setup", help="show how to connect Claude Code and Codex to the message bus")
+    st.add_argument("--rules", action="store_true",
+                    help="write collaboration rules into CLAUDE.md and AGENTS.md")
+    st.add_argument("--global", dest="global_", action="store_true",
+                    help="with --rules: use ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md (all projects)")
+    st.add_argument("--remove", action="store_true", help="with --rules: remove the rules again")
+    st.add_argument("dir", nargs="?", help="with --rules: project folder (default: current folder)")
+    r = sub.add_parser("relay", help="run only the relay that wakes idle agents for new messages")
+    _relay_options(r)
     return p.parse_args(argv)
 
 
@@ -203,9 +225,15 @@ def run_command(args) -> int:
     if args.command == "hook":
         from .hook import run as hook_run
         return hook_run()
+    if args.command == "relay":
+        from .relay import Relay, config_from_args, run_forever
+        return run_forever(Collector(15.0).collect, Relay(config=config_from_args(args)))
     if args.command == "doctor":
         return run_doctor()
     if args.command == "setup":
+        if args.rules:
+            from .rules import run as rules_run
+            return rules_run(args.dir, args.global_, args.remove)
         from .connect import print_setup
         print_setup()
         return 0
@@ -296,6 +324,10 @@ def run(argv=None) -> int:
     out.flush()
     paused, show_feed, tick = False, not args.no_feed, 0
     compose, notice, notice_until = None, "", 0.0
+    relay, relay_seen = None, 0
+    if args.relay and not args.demo:
+        from .relay import Relay, config_from_args
+        relay = Relay(config=config_from_args(args))
     state = collect()
     last = time.monotonic()
     try:
@@ -305,7 +337,8 @@ def run(argv=None) -> int:
                 if notice and time.monotonic() > notice_until:
                     notice = ""
                 lines = draw(state, (size.columns, size.lines), tick=tick, paused=paused, interval=interval,
-                             show_feed=show_feed, compose=compose, notice=notice)
+                             show_feed=show_feed, compose=compose, notice=notice,
+                             relay=relay.status() if relay else "")
                 # Trailing padding is redundant with erase-to-end-of-line (ESC[K); dropping it keeps
                 # output small and avoids stray wrapping in consoles that miscount escape codes.
                 out.write("\x1b[H" + "\x1b[K\n".join(l.rstrip(" ") for l in lines) + "\x1b[K\x1b[J")
@@ -353,14 +386,28 @@ def run(argv=None) -> int:
                         notice_until = time.monotonic() + 4
                     elif k == "m":
                         compose = ""
+                    elif k == "x":
+                        if relay is None:
+                            notice = "relay is off (start with --relay)"
+                        else:
+                            notice = relay.toggle()
+                        notice_until = time.monotonic() + 4
                     elif k == "r":
                         last = 0.0
                 if not paused and time.monotonic() - last >= interval:
                     state = collect()
                     last = time.monotonic()
+                    if relay is not None:
+                        relay.tick(state[0])
+                        for seq, _ts, text in list(relay.events):
+                            if seq > relay_seen:
+                                relay_seen = seq
+                                notice, notice_until = "relay: " + text, time.monotonic() + 6
     except KeyboardInterrupt:
         pass
     finally:
+        if relay is not None:
+            relay.stop()
         out.write("\x1b[0m\x1b[?25h\x1b[?1049l")
         out.flush()
     return 0
