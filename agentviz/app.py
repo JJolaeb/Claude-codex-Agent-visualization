@@ -10,7 +10,7 @@ import sys
 import time
 
 from . import __version__
-from .model import Builder, feed, session_label
+from .model import Builder, Dismissed, feed, session_label
 from .procs import Sampler
 from .render import LEGACY_CONSOLE_HELP, VT_LEGACY, VT_OK, Theme, frame, windows_vt_status
 from .sessions import SessionTracker, claude_pid_sessions
@@ -260,8 +260,11 @@ def run(argv=None) -> int:
         backend = source.backend
     collect = source.collect
 
+    dismissed = Dismissed()
+
     def draw(state, size, **kw):
         views, sessions, messages, targets = state
+        views, sessions = dismissed.apply(views, sessions)
         return frame(views, feed(sessions), session_label(sessions), size, kw.pop("tick", 0), theme,
                      backend=backend, messages=messages, targets=targets, **kw)
 
@@ -340,6 +343,14 @@ def run(argv=None) -> int:
                         interval = min(30.0, interval * 2)
                     elif k == "f":
                         show_feed = not show_feed
+                    elif k == "c":
+                        n = dismissed.clear_finished(dismissed.apply(state[0], state[1])[0])
+                        notice = f"cleared {n} finished" if n else "nothing finished to clear"
+                        notice_until = time.monotonic() + 4
+                    elif k == "u":
+                        n = dismissed.restore()
+                        notice = f"restored {n}" if n else "nothing to restore"
+                        notice_until = time.monotonic() + 4
                     elif k == "m":
                         compose = ""
                     elif k == "r":

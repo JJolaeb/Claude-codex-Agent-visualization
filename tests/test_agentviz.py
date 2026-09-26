@@ -215,6 +215,27 @@ class BuilderTest(unittest.TestCase):
         shown_all = {v.pid for v in Builder(show_all=True).build(procs, _FakeSampler({}), [])}
         self.assertTrue({100, 130, 140} <= shown_all)
 
+    def test_dismiss_finished_sessions(self):
+        from agentviz.model import AgentView, Dismissed
+        from agentviz.agents import KIND_BY_KEY
+        now = time.time()
+        done = S.Session(agent="codex", path="/p/done.jsonl", session_id="d", mtime=now - 60)
+        done.add(now - 60, "text", "finished")
+        sub = S.Session(agent="claude", path="/p/sub.jsonl", session_id="s", is_subagent=True, mtime=now - 60)
+        live = S.Session(agent="claude", path="/p/live.jsonl", session_id="l", mtime=now)
+        views = [AgentView(kind=KIND_BY_KEY["codex"], session=done, subagents=[sub]),
+                 AgentView(kind=KIND_BY_KEY["claude"], pid=5, session=live)]
+        d = Dismissed()
+        self.assertEqual(d.clear_finished(views), 1)  # running agent is kept
+        v2, s2 = d.apply(views, [done, sub, live])
+        self.assertEqual([v.pid for v in v2], [5])
+        self.assertEqual([s.path for s in s2], ["/p/live.jsonl"])  # feed events of cleared ones go too
+        done.mtime = now + 1  # session resumed -> shows up again
+        self.assertEqual(len(d.apply(views, [done])[0]), 2)
+        done.mtime = now - 60
+        self.assertEqual(d.restore(), 2)
+        self.assertEqual(len(d.apply(views, [done])[0]), 2)
+
     def test_empty_frame(self):
         lines = frame([], [], {}, (60, 12), 0, Theme(color=False))
         self.assertIn("No active coding agents", "\n".join(lines))

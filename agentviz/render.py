@@ -226,6 +226,7 @@ def frame(views: list, events: list, labels: dict, size: tuple, tick: int, theme
     else:
         footer = fit([(" q", (1,)), (" quit  ", DIM), ("p", (1,)), (" pause  ", DIM), ("+/-", (1,)),
                       (" speed  ", DIM), ("f", (1,)), (" feed  ", DIM), ("m", (1,)), (" message  ", DIM),
+                      ("c", (1,)), (" clear done  ", DIM),
                       (notice + "  " if notice else "", (38, 5, 214)),
                       (f"[{backend}]" if backend else "", DIM)], w, theme)
     messages = messages or []

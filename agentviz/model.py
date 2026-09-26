@@ -193,6 +193,44 @@ class Builder:
         return views
 
 
+def is_finished(view: AgentView) -> bool:
+    """A card whose agent process is gone (only its transcript is left)."""
+    return view.pid is None
+
+
+class Dismissed:
+    """Finished sessions the user cleared from the dashboard.
+
+    A cleared session reappears if its transcript is written to again (e.g. resumed).
+    """
+
+    def __init__(self) -> None:
+        self.items: dict = {}  # transcript path -> mtime when cleared
+
+    def clear_finished(self, views: list) -> int:
+        n = 0
+        for v in views:
+            if is_finished(v) and v.session is not None:
+                for s in [v.session] + list(v.subagents):
+                    self.items[s.path] = s.mtime
+                n += 1
+        return n
+
+    def restore(self) -> int:
+        n = len(self.items)
+        self.items.clear()
+        return n
+
+    def hidden(self, session) -> bool:
+        cleared = self.items.get(session.path)
+        return cleared is not None and session.mtime <= cleared
+
+    def apply(self, views: list, sessions: list) -> tuple:
+        views = [v for v in views if not (v.session is not None and is_finished(v) and self.hidden(v.session))]
+        sessions = [s for s in sessions if not self.hidden(s)]
+        return views, sessions
+
+
 def feed(sessions: list, limit: int = 50) -> list:
     """Most recent events across all sessions, newest first."""
     events: list = []
