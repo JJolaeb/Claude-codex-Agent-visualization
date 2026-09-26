@@ -105,9 +105,12 @@ agentviz setup      # 내 환경에 맞는 등록 명령을 출력
 출력되는 명령 예시:
 
 ```bash
-claude mcp add --scope user agentviz -- agentviz mcp      # Claude Code
-codex mcp add agentviz -- agentviz mcp                    # Codex
+claude mcp add --scope user agentviz -- python -m agentviz mcp      # Claude Code
+codex mcp add agentviz -- python -m agentviz mcp                    # Codex
 ```
+
+> `agentviz` 명령 대신 `python -m agentviz`를 쓰는 이유: Windows에서 pip의 Scripts 폴더가 PATH에 없으면
+> 에이전트가 `agentviz`를 찾지 못해 `Failed to connect`가 납니다. `agentviz setup`은 Python 전체 경로로 된 명령을 출력하므로 가장 확실합니다.
 
 등록 후 에이전트를 다시 시작하면, 각 에이전트는 자동으로 `claude@<프로젝트폴더>`, `codex@<프로젝트폴더>` 같은 이름을 갖습니다.
 
