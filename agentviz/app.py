@@ -261,7 +261,9 @@ def run(argv=None) -> int:
                     notice = ""
                 lines = draw(state, (size.columns, size.lines), tick=tick, paused=paused, interval=interval,
                              show_feed=show_feed, compose=compose, notice=notice)
-                out.write("\x1b[H" + "\x1b[K\n".join(lines) + "\x1b[K\x1b[J")
+                # Trailing padding is redundant with erase-to-end-of-line (ESC[K); dropping it keeps
+                # output small and avoids stray wrapping in consoles that miscount escape codes.
+                out.write("\x1b[H" + "\x1b[K\n".join(l.rstrip(" ") for l in lines) + "\x1b[K\x1b[J")
                 out.flush()
                 key = keys.get(0.12)
                 tick += 1
